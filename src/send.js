@@ -7,7 +7,6 @@ import { numSetting } from '../db/settings.js';
 import { candidateSummary, compactCandidateLine, batchRevealSummary, formatPosition } from './format.js';
 import { candidateButtons, batchRevealButtons, positionButtons, intentButtons } from './menus.js';
 import { batchById } from '../db/decisions.js';
-import fs from 'fs';
 
 export async function sendTelegram(text, extra = {}) {
   return bot.sendMessage(TELEGRAM_CHAT_ID, text, {
@@ -75,8 +74,7 @@ export async function sendPositionOpen(positionId) {
 
 export async function sendPositionExit(position) {
   const label = position?.execution_mode === 'live' ? 'Live exit' : 'Dry-run exit';
-  const exitReason = position.exit_reason ?? position.exitReason ?? '';
-  await sendTelegram(`🏁 <b>${label}: ${escapeHtml(exitReason)}</b>\n\n${formatPosition({ ...position, status: 'closed', exit_reason: exitReason })}`);
+  await sendTelegram(`🏁 <b>${label}: ${escapeHtml(position.exitReason)}</b>\n\n${formatPosition({ ...position, status: 'closed' })}`);
 }
 
 export async function sendTradeIntent(intentId, candidate, decision) {
@@ -88,11 +86,4 @@ export async function sendTradeIntent(intentId, candidate, decision) {
     `Size: <b>${fmtSol(numSetting('dry_run_buy_sol', 0.1))} SOL</b>`,
     'Execution: confirmation required before signing.',
   ].join('\n'), intentButtons(intentId));
-}
-
-export async function sendPnlChart(chartPath) {
-  if (!fs.existsSync(chartPath)) return null;
-  return bot.sendPhoto(TELEGRAM_CHAT_ID, fs.createReadStream(chartPath), {
-    ...(TELEGRAM_TOPIC_ID ? { message_thread_id: Number(TELEGRAM_TOPIC_ID) } : {}),
-  });
 }

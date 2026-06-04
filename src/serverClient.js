@@ -26,25 +26,8 @@ function signalKey(signal) {
 }
 
 async function triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route }) {
-
-  console.log(
-    `[signal->candidate] ${mint.slice(0,8)} route=${route || 'unknown'}`
-  );
-
-  if (!candidateHandler) {
-
-    console.log(
-      `[signal->candidate] candidateHandler missing`
-    );
-
-    return;
-  }
-
+  if (!candidateHandler) return;
   await candidateHandler({ mint, fee, signature, graduatedCoin, trendingToken, route });
-
-  console.log(
-    `[signal->candidate] processed ${mint.slice(0,8)}`
-  );
 }
 
 export async function fetchServerSignals() {
@@ -120,40 +103,15 @@ export async function fetchServerSignals() {
       const sourceCount = signal.sourceCount || 1;
 
       // Strategy gate: check source count
-      if (sourceCount < strat.min_source_count) {
-
-        console.log(
-          `[signal rejected] ${mint.slice(0,8)} sourceCount=${sourceCount} < ${strat.min_source_count}`
-        );
-
-        processed++;
-        continue;
-      }
+      if (sourceCount < strat.min_source_count) { processed++; continue; }
 
       // Strategy gate: fee claim requirement
-      if (strat.require_fee_claim && !hasFee) {
-
-        console.log(
-          `[signal rejected] ${mint.slice(0,8)} missing fee claim`
-        );
-
-        processed++;
-        continue;
-      }
+      if (strat.require_fee_claim && !hasFee) { processed++; continue; }
 
       // Strategy gate: token age
       if (strat.token_age_max_ms > 0) {
         const tokenAge = signal.ageMs || 0;
-
-        if (tokenAge > strat.token_age_max_ms) {
-
-          console.log(
-            `[signal rejected] ${mint.slice(0,8)} tokenAge=${tokenAge} > ${strat.token_age_max_ms}`
-          );
-
-          processed++;
-          continue;
-        }
+        if (tokenAge > strat.token_age_max_ms) { processed++; continue; }
       }
 
       // Determine route
@@ -185,23 +143,11 @@ export async function fetchServerSignals() {
       if (strat.entry_mode === 'wait_for_dip' && strat.max_ath_distance_pct < 0) {
         // Dip buy strategy: check if already at target
         const athDist = signal.graduated?.distanceFromAthPercent;
-
         if (athDist != null && athDist <= strat.max_ath_distance_pct) {
-
-          console.log(
-            `[dip trigger] ${mint.slice(0,8)} athDist=${athDist}`
-          );
-
           // Already at dip target, trigger immediately
           await triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route });
           triggered++;
-
         } else {
-
-          console.log(
-            `[dip waiting] ${mint.slice(0,8)} athDist=${athDist}`
-          );
-
           // Store price alert for later
           const { storePriceAlert } = await import('./priceMonitor.js');
           const targetPrice = signal.priceUsd ? signal.priceUsd * (1 + strat.max_ath_distance_pct / 100) : null;
@@ -217,11 +163,6 @@ export async function fetchServerSignals() {
           dipAlerts++;
         }
       } else {
-
-        console.log(
-          `[signal accepted] ${mint.slice(0,8)} route=${route}`
-        );
-
         // Immediate entry mode (sniper, smart_money, degen)
         await triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route });
         triggered++;

@@ -16,8 +16,6 @@ import { setDegenHandler } from '../signals/trending.js';
 import { setCandidateHandler } from '../signals/feeClaim.js';
 import { short } from '../format.js';
 import { escapeHtml } from '../format.js';
-import { evaluateBuyRisk } from '../risk/engine.js';
-import { REQUIRE_CONFIRMATION_FOR_LIVE } from '../config.js';
 
 export const seenSignalCandidates = new Map();
 
@@ -27,7 +25,7 @@ setCandidateHandler(processCandidateFromSignals);
 export async function processCandidateFromSignals(signals) {
   // Skip if max positions reached — don't waste enrichment/LLM calls
   if (!canOpenMorePositions()) {
-    const max = numSetting('max_open_positions', 10);
+    const max = numSetting('max_open_positions', 3);
     console.log(`[agent] max positions reached (${openPositionCount()}/${max}), skipping ${signals.mint.slice(0, 8)}...`);
     return;
   }
@@ -35,21 +33,9 @@ export async function processCandidateFromSignals(signals) {
   const candidate = await buildCandidate(signals);
   const signature = signals.signature || null;
   const candidateId = upsertCandidate(candidate, signature);
-
   if (!candidate.filters.passed) {
-
-    console.log(
-      `[candidate rejected] ${candidate.token.symbol || candidate.token.mint.slice(0,8)} | ${candidate.filters.failures.join('; ')}`
-    );
-
+    console.log(`[candidate] filtered ${candidate.token.mint.slice(0, 8)}... ${candidate.filters.failures.join('; ')}`);
     return;
-
-  } else {
-
-    console.log(
-      `[candidate passed] ${candidate.token.symbol || candidate.token.mint.slice(0,8)}`
-    );
-
   }
 
   const strat = activeStrategy();
@@ -67,38 +53,16 @@ export async function processCandidateFromSignals(signals) {
       selected_row: selfRow,
       reason: `Strategy '${strat.id}' is rule-based (use_llm: false); filters passed.`,
       risks: [],
-      suggested_tp_percent: strat.tp_percent ?? numSetting('default_tp_percent', 30),
-      suggested_sl_percent: strat.sl_percent ?? numSetting('default_sl_percent', -20),
+      suggested_tp_percent: strat.tp_percent ?? numSetting('default_tp_percent', 50),
+      suggested_sl_percent: strat.sl_percent ?? numSetting('default_sl_percent', -25),
       raw: null,
     };
   } else {
-
     rows = recentEligibleCandidates(numSetting('llm_candidate_pick_count', 10));
-
-    console.log(
-      `[llm] analyzing ${rows.length} candidates`
-    );
-
     batchDecision = await decideCandidateBatch(rows, candidateId);
-
     batchId = storeBatchDecision(candidateId, rows, batchDecision);
-
-    console.log(
-      `[llm result] verdict=${batchDecision.verdict} confidence=${batchDecision.confidence} reason=${batchDecision.reason || 'none'}`
-    );
-
   }
-
   const selectedRow = batchDecision.selected_row;
-
-  if (selectedRow) {
-
-    console.log(
-      `[selected] ${selectedRow.candidate.token.symbol || selectedRow.candidate.token.mint.slice(0,8)}`
-    );
-
-  }
-
   const selectedThisCandidate = selectedRow?.id === candidateId;
   const currentDecision = selectedThisCandidate
     ? batchDecision
@@ -123,10 +87,9 @@ export async function processCandidateFromSignals(signals) {
 
   if (batchId) await sendBatchReveal(batchId, rows, batchDecision, candidateId);
 
-  const effectiveMinConf = Math.max(strat?.llm_min_confidence ?? 50, 50);
-  if (selectedRow && boolSetting('agent_enabled', true) && batchDecision.verdict === 'BUY' && batchDecision.confidence >= effectiveMinConf) {
+  if (selectedRow && boolSetting('agent_enabled', true) && batchDecision.verdict === 'BUY' && batchDecision.confidence >= numSetting('llm_min_confidence', 75)) {
     if (!canOpenMorePositions()) {
-      const max = numSetting('max_open_positions', 10);
+      const max = numSetting('max_open_positions', 3);
       console.log(`[agent] max open positions reached (${openPositionCount()}/${max}), skipping buy ${selectedRow.candidate.token.mint}`);
       logDecisionEvent({
         batchId,
@@ -149,9 +112,10 @@ export async function processCandidateFromSignals(signals) {
       decision: batchDecision,
       action: selectedRow ? 'entry_not_approved' : 'no_candidate_selected',
       guardrails: {
-        confidenceThreshold: effectiveMinConf,
+        agentEnabled: boolSetting('agent_enabled', true),
+        confidenceThreshold: numSetting('llm_min_confidence', 75),
         openPositions: openPositionCount(),
-        maxOpenPositions: numSetting('max_open_positions', 10),
+        maxOpenPositions: numSetting('max_open_positions', 3),
       },
     });
   }
@@ -186,47 +150,6 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
     return;
   }
 
-  const risk = await evaluateBuyRisk({ candidate: freshSelectedRow.candidate, decision, mode, approved: false, side: 'buy' });
-  if (!risk.ok) {
-    updateCandidateStatus(freshSelectedRow.id, 'risk_rejected');
-    logDecisionEvent({
-      batchId,
-      triggerCandidateId,
-      selectedRow: freshSelectedRow,
-      rows: executionRows,
-      decision,
-      mode,
-      action: 'entry_rejected_risk_engine',
-      guardrails: risk,
-    });
-    await sendTelegram([
-      '🛡️ <b>Buy blocked by risk engine</b>',
-      '',
-      candidateSummary(freshSelectedRow.candidate, decision),
-      '',
-      `Risk score: <b>${risk.riskScore}</b>`,
-      `Blocks: ${escapeHtml(risk.blocks.map(item => item.message).join('; ') || 'none')}`,
-    ].join('\n'));
-    return;
-  }
-
-  if (mode === 'live' && REQUIRE_CONFIRMATION_FOR_LIVE) {
-    const intentId = createTradeIntent(freshSelectedRow.id, freshSelectedRow.candidate, decision, mode, 'pending_confirmation');
-    logDecisionEvent({
-      batchId,
-      triggerCandidateId,
-      selectedRow: freshSelectedRow,
-      rows: executionRows,
-      decision,
-      mode,
-      action: 'live_intent_created_confirmation_required',
-      guardrails: risk,
-      execution: { intentId },
-    });
-    await sendTradeIntent(intentId, freshSelectedRow.candidate, decision);
-    return;
-  }
-
   if (mode === 'dry_run') {
     const positionId = await createDryRunPosition(freshSelectedRow.id, freshSelectedRow.candidate, decision, `llm_batch_${batchId}`);
     logDecisionEvent({
@@ -237,7 +160,7 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       decision,
       mode,
       action: 'dry_run_entry',
-      guardrails: risk,
+      guardrails: { maxOpenPositions: numSetting('max_open_positions', 3), openPositions: openPositionCount() },
       execution: { positionId },
     });
     await sendPositionOpen(positionId);
@@ -254,7 +177,7 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       decision,
       mode,
       action: 'confirm_intent_created',
-      guardrails: { maxOpenPositions: numSetting('max_open_positions', 10), openPositions: openPositionCount() },
+      guardrails: { maxOpenPositions: numSetting('max_open_positions', 3), openPositions: openPositionCount() },
       execution: { intentId },
     });
     await sendTradeIntent(intentId, freshSelectedRow.candidate, decision);
@@ -273,7 +196,7 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       decision,
       mode,
       action: 'live_entry_failed',
-      guardrails: { maxOpenPositions: numSetting('max_open_positions', 10), openPositions: openPositionCount() },
+      guardrails: { maxOpenPositions: numSetting('max_open_positions', 3), openPositions: openPositionCount() },
       execution: { intentId, error: err.message },
     });
     await sendTelegram([

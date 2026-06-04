@@ -3,20 +3,20 @@ import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } from
 import { now, stripThinking, strictJsonFromText } from '../utils.js';
 import { numSetting } from '../db/settings.js';
 import { db } from '../db/connection.js';
-import { validateLlmJson } from './llmValidator.js';
-
-export function validateLlmDecision(parsed, rows = [], fallbackReason = '') {
-  const decision = validateLlmJson(parsed, rows, {
-    maxBuySol: numSetting('max_buy_sol', Number(process.env.MAX_BUY_SOL || 0.02)),
-    defaultTp: numSetting('default_tp_percent', 30),
-    defaultSl: numSetting('default_sl_percent', -20),
-  });
-  if (!decision.reason && fallbackReason) decision.reason = String(fallbackReason).slice(0, 1000);
-  return decision;
-}
 
 export function normalizeDecision(parsed, fallbackReason = '') {
-  return validateLlmDecision(parsed, [], fallbackReason);
+  const verdict = ['BUY', 'WATCH', 'PASS'].includes(String(parsed?.verdict).toUpperCase())
+    ? String(parsed.verdict).toUpperCase()
+    : 'WATCH';
+  return {
+    verdict,
+    confidence: Math.max(0, Math.min(100, Number(parsed?.confidence) || 0)),
+    reason: String(parsed?.reason || fallbackReason).slice(0, 1000),
+    risks: Array.isArray(parsed?.risks) ? parsed.risks.map(String).slice(0, 8) : [],
+    suggested_tp_percent: Number(parsed?.suggested_tp_percent) || numSetting('default_tp_percent', 50),
+    suggested_sl_percent: Number(parsed?.suggested_sl_percent) || numSetting('default_sl_percent', -25),
+    raw: parsed,
+  };
 }
 
 export function activeLessonsForPrompt(limit = 6) {
@@ -68,15 +68,14 @@ export function compactCandidateForLlm(row) {
 export async function decideCandidateBatch(rows, triggerCandidateId) {
   if (!ENABLE_LLM || !LLM_API_KEY) {
     return {
-      action: 'SKIP',
       verdict: 'WATCH',
       confidence: 0,
       selected_candidate_id: null,
       selected_mint: null,
       reason: 'LLM disabled or LLM_API_KEY missing.',
       risks: ['no_llm_decision'],
-      suggested_tp_percent: numSetting('default_tp_percent', 30),
-      suggested_sl_percent: numSetting('default_sl_percent', -20),
+      suggested_tp_percent: numSetting('default_tp_percent', 50),
+      suggested_sl_percent: numSetting('default_sl_percent', -25),
       raw: null,
     };
   }
@@ -85,33 +84,26 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
     'You are Charon, a Solana meme coin trench analyst.',
     'Return strict JSON only.',
     'You will receive up to 10 recently matched candidates.',
-    'Pick at most one candidate to recommend. You are not allowed to execute trades.',
-    'Use action BUY only for the single best unusually strong asymmetric opportunity.',
-    'Use action SKIP if candidates are weak, late, unclear, or unsafe.',
-    'TRADING PHILOSOPHY — FOLLOW STRICTLY:',
-    '1. Small consistent profits beat greedy wins. TP of 5-15% is perfectly fine. Hitting TP repeatedly is the goal, not chasing 50-100%.',
-    '2. Degen strategy: fast entries, tight trailing stops, quick exits. Move fast, take profits, repeat.',
-    '3. If a trade hits SL, analyze deeply what went wrong BEFORE changing anything. Learn first, adjust second.',
-    '4. Never average down or hold through SL to "wait for recovery."',
-    '5. Invalidations are exit signals, not buy-the-dip signals.',
+    'Pick at most one candidate to buy through the configured execution mode.',
+    'Use verdict BUY only for the single best unusually strong asymmetric opportunity.',
+    'Use WATCH if candidates are interesting but none deserves a buy.',
+    'Use PASS if the set is weak or unsafe.',
     'Chart data is ATH/range context. Do not penalize or reward a token only because 24h change is huge; new Pump tokens often do that.',
     'Use distance from ATH/range high and top-blast risk to decide whether entry is late.',
     'Confidence is your conviction from 0 to 100, not probability.',
   ].join(' ');
   const user = {
-    task: 'Recommend at most one candidate from this recent batch, or skip all. Deterministic risk engine decides final execution.',
+    task: 'Pick the best dry-run buy candidate from this recent batch, or choose none.',
     recent_lessons: activeLessonsForPrompt(),
     output_schema: {
-      action: 'BUY|SKIP',
-      selected_candidate_id: 'integer candidate_id when action is BUY, otherwise null',
-      selected_mint: 'mint string when action is BUY, otherwise null',
+      verdict: 'BUY|WATCH|PASS',
+      selected_candidate_id: 'integer candidate_id when verdict is BUY, otherwise null',
+      selected_mint: 'mint string when verdict is BUY, otherwise null',
       confidence: 'number 0-100',
       reason: 'short string',
       risks: ['short strings'],
-      suggested_tp_percent: 'positive number, ONLY 5-15 for degen plays. Never exceed 15.',
-      suggested_sl_percent: 'negative number, -10 to -15 max for degen',
-      suggestedSizeSol: 'number, must not exceed configured MAX_BUY_SOL',
-      invalidations: ['conditions that would invalidate the idea — treat as exit signals, not buy signals'],
+      suggested_tp_percent: 'positive number',
+      suggested_sl_percent: 'negative number',
     },
     trigger_candidate_id: triggerCandidateId,
     candidates: rows.map(compactCandidateForLlm),
@@ -131,7 +123,16 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
     });
     const content = res.data?.choices?.[0]?.message?.content || '';
     const parsed = strictJsonFromText(content);
-    return validateLlmDecision(parsed, rows);
+    const decision = normalizeDecision(parsed);
+    const selectedId = Number(parsed.selected_candidate_id);
+    const selectedMint = String(parsed.selected_mint || '');
+    const row = rows.find(item => item.id === selectedId || item.candidate.token?.mint === selectedMint);
+    return {
+      ...decision,
+      selected_candidate_id: decision.verdict === 'BUY' && row ? row.id : null,
+      selected_mint: decision.verdict === 'BUY' && row ? row.candidate.token.mint : null,
+      selected_row: decision.verdict === 'BUY' && row ? row : null,
+    };
   } catch (err) {
     console.log(`[llm] batch failed: ${err.message}`);
     return {
@@ -141,8 +142,8 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
       selected_mint: null,
       reason: `LLM failed: ${err.message}`,
       risks: ['llm_error'],
-      suggested_tp_percent: numSetting('default_tp_percent', 30),
-      suggested_sl_percent: numSetting('default_sl_percent', -20),
+      suggested_tp_percent: numSetting('default_tp_percent', 50),
+      suggested_sl_percent: numSetting('default_sl_percent', -25),
       raw: { error: err.message },
     };
   }

@@ -9,6 +9,7 @@ import {
   SOLANA_PRIVATE_KEY,
   SOLANA_RPC_URL,
 } from './config.js';
+import { retryWithBackoff } from './utils.js';
 
 let liveWallet = null;
 let solanaConnection = null;
@@ -69,10 +70,11 @@ async function jupiterOrder({ inputMint, outputMint, amount }) {
   url.searchParams.set('outputMint', outputMint);
   url.searchParams.set('amount', String(amount));
   url.searchParams.set('taker', liveWallet.publicKey.toBase58());
-  const res = await axios.get(url.toString(), {
+  url.searchParams.set('slippageBps', String(JUPITER_SLIPPAGE_BPS));
+  const res = await retryWithBackoff(() => axios.get(url.toString(), {
     timeout: 20_000,
     headers: { ...JSON_HEADERS, 'x-api-key': JUPITER_API_KEY },
-  });
+  }), { retries: 2, baseMs: 600 });
   const order = res.data;
   if (order.errorCode || order.error) {
     throw new Error(`Jupiter order failed: ${order.errorMessage || order.error || order.errorCode}`);
@@ -96,10 +98,10 @@ async function jupiterExecute(order, signedTransaction) {
     signedTransaction,
     requestId: order.requestId,
   };
-  const res = await axios.post(`${JUPITER_SWAP_BASE_URL.replace(/\/$/, '')}/execute`, body, {
+  const res = await retryWithBackoff(() => axios.post(`${JUPITER_SWAP_BASE_URL.replace(/\/$/, '')}/execute`, body, {
     timeout: 30_000,
     headers: { ...JSON_HEADERS, 'content-type': 'application/json', 'x-api-key': JUPITER_API_KEY },
-  });
+  }), { retries: 2, baseMs: 800 });
   return res.data;
 }
 

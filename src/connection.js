@@ -191,95 +191,6 @@ export function initDb() {
       triggered_at_ms INTEGER,
       expires_at_ms INTEGER NOT NULL
     );
-
-    CREATE TABLE IF NOT EXISTS decisions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      candidate_id INTEGER,
-      mint TEXT,
-      created_at_ms INTEGER NOT NULL,
-      action TEXT NOT NULL,
-      confidence REAL,
-      reason TEXT,
-      risks_json TEXT NOT NULL DEFAULT '[]',
-      payload_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE TABLE IF NOT EXISTS positions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source_position_id INTEGER,
-      mint TEXT NOT NULL,
-      status TEXT NOT NULL,
-      execution_mode TEXT NOT NULL DEFAULT 'dry_run',
-      opened_at_ms INTEGER NOT NULL,
-      closed_at_ms INTEGER,
-      pnl_sol REAL DEFAULT 0,
-      payload_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE TABLE IF NOT EXISTS intents (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trade_intent_id INTEGER,
-      mint TEXT NOT NULL,
-      status TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      expires_at_ms INTEGER,
-      payload_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE TABLE IF NOT EXISTS risk_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      mint TEXT,
-      created_at_ms INTEGER NOT NULL,
-      side TEXT NOT NULL,
-      mode TEXT NOT NULL,
-      ok INTEGER NOT NULL,
-      risk_score REAL NOT NULL,
-      blocks_json TEXT NOT NULL DEFAULT '[]',
-      warnings_json TEXT NOT NULL DEFAULT '[]',
-      payload_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE TABLE IF NOT EXISTS pending_approvals (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      intent_id INTEGER NOT NULL UNIQUE,
-      mint TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      created_at_ms INTEGER NOT NULL,
-      expires_at_ms INTEGER NOT NULL,
-      approved_at_ms INTEGER,
-      rejected_at_ms INTEGER,
-      payload_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE TABLE IF NOT EXISTS blacklist (
-      mint TEXT PRIMARY KEY,
-      reason TEXT,
-      created_at_ms INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS daily_stats (
-      day TEXT PRIMARY KEY,
-      trades INTEGER NOT NULL DEFAULT 0,
-      pnl_sol REAL NOT NULL DEFAULT 0,
-      loss_sol REAL NOT NULL DEFAULT 0,
-      updated_at_ms INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS lessons (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      lesson TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      created_at_ms INTEGER NOT NULL,
-      payload_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE TABLE IF NOT EXISTS tool_errors (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tool TEXT NOT NULL,
-      message TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      payload_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE INDEX IF NOT EXISTS idx_candidates_created_at ON candidates(created_at_ms);
-    CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status, created_at_ms);
-    CREATE INDEX IF NOT EXISTS idx_decisions_mint_created ON decisions(mint, created_at_ms);
-    CREATE INDEX IF NOT EXISTS idx_positions_mint_status ON positions(mint, status);
-    CREATE INDEX IF NOT EXISTS idx_intents_status ON intents(status, created_at_ms);
-    CREATE INDEX IF NOT EXISTS idx_risk_events_mint ON risk_events(mint, created_at_ms);
-    CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals(status, expires_at_ms);
-    CREATE INDEX IF NOT EXISTS idx_tool_errors_created ON tool_errors(created_at_ms);
     CREATE INDEX IF NOT EXISTS idx_alerts_status ON price_alerts(status, expires_at_ms);
     CREATE INDEX IF NOT EXISTS idx_candidates_mint ON candidates(mint);
     CREATE INDEX IF NOT EXISTS idx_positions_status ON dry_run_positions(status);
@@ -297,23 +208,19 @@ export function initDb() {
   ensureColumn('dry_run_positions', 'strategy_id', "TEXT DEFAULT 'sniper'");
   ensureColumn('dry_run_positions', 'partial_tp_done', 'INTEGER DEFAULT 0');
   ensureColumn('decision_logs', 'strategy_id', 'TEXT');
-  ensureColumn('trade_intents', 'expires_at_ms', 'INTEGER');
-  ensureColumn('trade_intents', 'idempotency_key', 'TEXT');
-  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_intents_idempotency ON trade_intents(idempotency_key) WHERE idempotency_key IS NOT NULL');
-
 
   const defaults = {
     agent_enabled: 'true',
     trading_mode: process.env.TRADING_MODE || 'dry_run',
-    llm_candidate_pick_count: process.env.LLM_CANDIDATE_PICK_COUNT || '3',
-    llm_candidate_max_age_ms: process.env.LLM_CANDIDATE_MAX_AGE_MS || String(3 * 60 * 1000),
+    llm_candidate_pick_count: process.env.LLM_CANDIDATE_PICK_COUNT || '10',
+    llm_candidate_max_age_ms: process.env.LLM_CANDIDATE_MAX_AGE_MS || String(10 * 60 * 1000),
     llm_min_confidence: '75',
-    max_open_positions: process.env.MAX_OPEN_POSITIONS || '10',
-    dry_run_buy_sol: '0.01',
-    default_tp_percent: '30',
-    default_sl_percent: '-20',
+    max_open_positions: process.env.MAX_OPEN_POSITIONS || '3',
+    dry_run_buy_sol: '0.1',
+    default_tp_percent: '50',
+    default_sl_percent: '-25',
     default_trailing_enabled: 'true',
-    default_trailing_percent: '12',
+    default_trailing_percent: '20',
     min_fee_claim_sol: process.env.MIN_FEE_CLAIM_SOL || '2',
     min_mcap_usd: '0',
     max_mcap_usd: '0',
@@ -333,14 +240,6 @@ export function initDb() {
     trending_min_swaps: process.env.TRENDING_MIN_SWAPS || '0',
     trending_max_rug_ratio: process.env.TRENDING_MAX_RUG_RATIO || '0.3',
     trending_max_bundler_rate: process.env.TRENDING_MAX_BUNDLER_RATE || '0.5',
-    max_buy_sol: process.env.MAX_BUY_SOL || '0.02',
-    daily_max_loss_sol: process.env.DAILY_MAX_LOSS_SOL || '0.05',
-    max_trades_per_day: process.env.MAX_TRADES_PER_DAY || '5',
-    token_cooldown_ms: process.env.TOKEN_COOLDOWN_MS || '3600000',
-    loss_cooldown_ms: process.env.LOSS_COOLDOWN_MS || '1800000',
-    emergency_stop: process.env.EMERGENCY_STOP || 'false',
-    require_confirmation_for_live: process.env.REQUIRE_CONFIRMATION_FOR_LIVE || 'true',
-    allow_live_trading: process.env.ALLOW_LIVE_TRADING || 'false',
   };
   const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   for (const [key, value] of Object.entries(defaults)) insert.run(key, value);
@@ -367,10 +266,10 @@ export function initDb() {
     trending_min_swaps: 0,
     trending_max_rug_ratio: 0.3,
     trending_max_bundler_rate: 0.5,
-    position_size_sol: 0.03,
-    max_open_positions: 10,
-    tp_percent: 30,
-    sl_percent: -20,
+    position_size_sol: 0.1,
+    max_open_positions: 3,
+    tp_percent: 50,
+    sl_percent: -25,
     trailing_enabled: true,
     trailing_percent: 20,
     partial_tp: false,
@@ -400,7 +299,7 @@ export function initDb() {
     trending_max_rug_ratio: 0.3,
     trending_max_bundler_rate: 0.5,
     position_size_sol: 0.05,
-    max_open_positions: 10,
+    max_open_positions: 3,
     tp_percent: 30,
     sl_percent: -20,
     trailing_enabled: true,
@@ -432,7 +331,7 @@ export function initDb() {
     trending_max_rug_ratio: 0.2,
     trending_max_bundler_rate: 0.3,
     position_size_sol: 0.1,
-    max_open_positions: 10,
+    max_open_positions: 3,
     tp_percent: 100,
     sl_percent: -25,
     trailing_enabled: false,
@@ -464,7 +363,7 @@ export function initDb() {
     trending_max_rug_ratio: 0.5,
     trending_max_bundler_rate: 0.7,
     position_size_sol: 0.05,
-    max_open_positions: 10,
+    max_open_positions: 5,
     tp_percent: 30,
     sl_percent: -15,
     trailing_enabled: true,
@@ -481,9 +380,4 @@ export function initDb() {
 export function ensureColumn(table, column, ddl) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name);
   if (!columns.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
-}
-
-
-export function transaction(fn) {
-  return db.transaction(fn)();
 }

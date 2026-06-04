@@ -1,6 +1,5 @@
 import { bot } from './bot.js';
 import { TELEGRAM_CHAT_ID } from '../config.js';
-import { validateCallback } from '../security/telegram.js';
 import { now } from '../utils.js';
 import { numSetting, boolSetting, setSetting, setActiveStrategy, activeStrategy, updateStrategyConfig } from '../db/settings.js';
 import {
@@ -28,7 +27,6 @@ import { sendCandidate, sendPosition, closePosition, updatePositionRule, toggleT
 import { requestNumericFilterInput, requestStrategyNumericInput } from './input.js';
 
 export async function handleCallback(query) {
-  if (!validateCallback(query)) return bot.answerCallbackQuery(query.id, { text: 'Unauthorized' }).catch(() => {});
   const data = query.data || '';
   const chatId = query.message?.chat?.id || TELEGRAM_CHAT_ID;
   await answerCallback(query);

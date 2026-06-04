@@ -8,6 +8,8 @@ import { liveWalletPubkey } from '../liveExecutor.js';
 import { fetchSavedWalletExposure } from '../enrichment/wallets.js';
 import { filterCandidate } from '../pipeline/candidateBuilder.js';
 import { openPositions } from '../db/positions.js';
+import { onPositionClosed, initLearningTables } from '../learning/autoTune.js';
+import { activeStrategy } from '../db/settings.js';
 import { updateCandidateSnapshot } from '../db/candidates.js';
 import { trending } from '../signals/trending.js';
 import { executeLiveSell } from './router.js';
@@ -108,6 +110,7 @@ export async function refreshCandidateForExecution(row) {
 const sellInProgress = new Set();
 
 export async function refreshPosition(position, { autoExit = true, jupiterPnl = null } = {}) {
+  const strat = strategyById(position.strategy_id);
   const asset = await fetchJupiterAsset(position.mint);
   const price = firstPositiveNumber(asset?.usdPrice, position.high_water_price, position.entry_price);
   const mcap = firstPositiveNumber(asset?.mcap, asset?.fdv, position.high_water_mcap, position.entry_mcap);
@@ -123,17 +126,65 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
     pnlSol = Number.isFinite(Number(jupiterPnl.totalPnlNative)) ? Number(jupiterPnl.totalPnlNative) : pnlSol;
   }
   const tpHit = pnlPercent >= Number(position.tp_percent);
-  const slHit = pnlPercent <= Number(position.sl_percent);
+  // Require at least 0.05% actual loss before triggering SL to avoid
+  // false exits when price hasn't moved or price feed is stale (0% PnL)
+  const slHit = pnlPercent <= Math.min(Number(position.sl_percent), -0.05);
   const trailingArmed = position.trailing_armed || (position.trailing_enabled && tpHit);
   const trailDrop = highWaterMcap > 0 ? (Number(mcap) / highWaterMcap - 1) * 100 : 0;
   const trailingHit = trailingArmed && position.trailing_enabled && trailDrop <= -Math.abs(Number(position.trailing_percent));
   let exitReason = null;
   let closed = false;
 
-  // Max hold time check
-  const strat = strategyById(position.strategy_id);
-  if (strat?.max_hold_ms > 0 && (now() - position.opened_at_ms) >= strat.max_hold_ms) {
-    exitReason = 'MAX_HOLD';
+  // === FAST LOSS EARLY EXIT ===
+  // If price drops >5% within first 45 seconds of entry → immediate exit (micro-cap dump)
+  const entryAgeSec = (now() - position.opened_at_ms) / 1000;
+  if (entryAgeSec <= 45 && pnlPercent <= -5) {
+    exitReason = 'FAST_LOSS';
+    console.log(`[position] ${position.id} FAST_LOSS: -${Math.abs(pnlPercent).toFixed(1)}% within ${entryAgeSec.toFixed(0)}s of entry`);
+  }
+
+  // === COOLING PERIOD AFTER LOSS ===
+  // After a loss, if we just closed a position in the last 5 minutes with negative PnL,
+  // skip new entries (avoids revenge trading / emotional entries)
+  const recentLossPositions = db.prepare(`
+    SELECT id FROM dry_run_positions
+    WHERE status = 'closed' AND pnl_sol < 0 AND closed_at_ms >= ?
+    ORDER BY closed_at_ms DESC LIMIT 1
+  `).get(now() - 300_000); // 5 min cooling
+  if (!exitReason && recentLossPositions) {
+    const lossAge = (now() - (recentLossPositions?.closed_at_ms || 0)) / 1000;
+    if (lossAge < 300) {
+      // Don't block the current position from managing itself, but log it
+      if (strat?.cooling_after_loss_ms && (now() - (recentLossPositions?.closed_at_ms || 0)) < strat.cooling_after_loss_ms) {
+        console.log(`[position] ${position.id} cooling after loss active: ${lossAge.toFixed(0)}s since loss`);
+      }
+    }
+  }
+
+  // === SMART MAX_HOLD: BREAKEVEN OR EXIT ===
+  // When max_hold expires, decide based on current PnL:
+  // - If in profit → move SL to breakeven (entry price) and give 60s more runway
+  // - If at loss → exit immediately (cut the bleeding)
+  if (!exitReason && strat?.max_hold_ms > 0 && (now() - position.opened_at_ms) >= strat.max_hold_ms) {
+    const posAge = (now() - position.opened_at_ms);
+    const isSecondChance = (position._extend_count || 0) >= 1;
+    if (pnlPercent > 0) {
+      // Profitable: lock in breakeven and allow second chance
+      const trailingBreakeven = pnlPercent > 2;
+      if (!isSecondChance && trailingBreakeven) {
+        // Mark as extended: set SL to entry (breakeven), allow 60s more
+        db.prepare('UPDATE dry_run_positions SET _extend_count = 1 WHERE id = ?').run(position.id);
+        db.prepare('UPDATE dry_run_positions SET sl_percent = ? WHERE id = ?').run(
+          Math.max(Number(position.sl_percent), 0), position.id
+        );
+        console.log(`[position] ${position.id} MAX_HOLD extended: SL→breakeven, +60s runway, PnL=${pnlPercent.toFixed(1)}%`);
+      } else if (isSecondChance || !trailingBreakeven) {
+        exitReason = 'MAX_HOLD';
+      }
+    } else {
+      // At loss: exit immediately
+      exitReason = 'MAX_HOLD';
+    }
   }
 
   // Partial TP check
@@ -245,6 +296,10 @@ export async function monitorPositions() {
     walletPnlData = await fetchJupiterWalletPnl(pubkey);
   }
   for (const position of positions) {
+    // Skip positions opened < 30s ago — price feed may be stale/rate-limited
+    // causing 0% PnL exits that should not trigger (race condition fix)
+    if ((now() - position.opened_at_ms) < 30_000) continue;
+
     const jupiterPnl = position.execution_mode === 'live'
       ? (walletPnlData[position.mint]?.pnl || null)
       : null;
@@ -252,6 +307,9 @@ export async function monitorPositions() {
       console.log(`[position] ${position.id} ${err.message}`);
       return null;
     });
-    if (result?.exitReason) await sendPositionExit(result);
+    if (result?.exitReason) {
+      await sendPositionExit(result);
+      onPositionClosed(result);
+    }
   }
 }

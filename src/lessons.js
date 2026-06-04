@@ -3,7 +3,6 @@ import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } from
 import { now, json, stripThinking, strictJsonFromText } from '../utils.js';
 import { fmtPct } from '../format.js';
 import { db } from '../db/connection.js';
-import { sendTelegram } from '../telegram/send.js';
 
 export function fallbackLessons(summary) {
   const lessons = [];

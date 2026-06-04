@@ -159,3 +159,60 @@ export function makeFailureTracker(name, alertFn, threshold = 3) {
     }
   };
 }
+
+
+export function redactSecrets(value) {
+  let text = typeof value === 'string' ? value : (() => { try { return JSON.stringify(value); } catch { return String(value); } })();
+  const envSecrets = [
+    process.env.TELEGRAM_BOT_TOKEN,
+    process.env.LLM_API_KEY,
+    process.env.GMGN_API_KEY,
+    process.env.HELIUS_API_KEY,
+    process.env.JUPITER_API_KEY,
+    process.env.SOLANA_PRIVATE_KEY,
+    process.env.PRIVATE_KEY,
+    process.env.SIGNAL_SERVER_KEY,
+  ].filter(Boolean).map(String);
+  for (const secret of envSecrets) {
+    if (secret.length >= 6) text = text.split(secret).join('[REDACTED]');
+  }
+  return text
+    .replace(/\b\d{8,12}:[A-Za-z0-9_-]{25,}\b/g, '[REDACTED_TELEGRAM_TOKEN]')
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, '[REDACTED_API_KEY]')
+    .replace(/(api-key=)[^&\s]+/gi, '$1[REDACTED]')
+    .replace(/(authorization:\s*bearer\s+)[^\s"']+/gi, '$1[REDACTED]')
+    .replace(/("?(?:private_key|solana_private_key|telegram_bot_token|llm_api_key|gmgn_api_key|helius_api_key|jupiter_api_key)"?\s*[:=]\s*")([^"\n]+)(")/gi, '$1[REDACTED]$3');
+}
+
+export async function retryWithBackoff(fn, { retries = 2, baseMs = 500, maxMs = 5000, shouldRetry = () => true } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try { return await fn(attempt); } catch (err) {
+      lastError = err;
+      if (attempt >= retries || !shouldRetry(err)) break;
+      const delay = Math.min(maxMs, baseMs * (2 ** attempt)) + Math.floor(Math.random() * 100);
+      await sleep(delay);
+    }
+  }
+  throw lastError;
+}
+
+export function createCircuitBreaker(name, { failureThreshold = 5, resetMs = 60_000 } = {}) {
+  let failures = 0;
+  let openedAt = 0;
+  return async (fn) => {
+    if (openedAt && Date.now() - openedAt < resetMs) {
+      throw new Error(`${name} circuit breaker open`);
+    }
+    try {
+      const result = await fn();
+      failures = 0;
+      openedAt = 0;
+      return result;
+    } catch (err) {
+      failures += 1;
+      if (failures >= failureThreshold) openedAt = Date.now();
+      throw err;
+    }
+  };
+}

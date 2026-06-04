@@ -41,14 +41,6 @@ export function filterCandidate(candidate) {
   const trendingSwaps = Number(candidate.trending?.swaps ?? 0);
   const rugRatio = Number(candidate.trending?.rug_ratio ?? 0);
   const bundlerRate = Number(candidate.trending?.bundler_rate ?? 0);
-  const utcHour = new Date().getUTCHours();
-
-  // === HOURLY DEATH ZONE FILTER ===
-  // Afternoon UTC (13:00-18:00) has shown -12% avg PnL with heavy selling pressure
-  // Skip new entries during this window; allow holds to exit naturally
-  if (utcHour >= 13 && utcHour < 18) {
-    failures.push(`time filter: UTC ${utcHour} is in death zone (13-18), PnL avg -12%`);
-  }
 
   // Fee claim check
   if (candidate.feeClaim) {

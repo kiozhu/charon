@@ -1,210 +1,206 @@
-# Charon
+# Charon2
 
-Charon is a Telegram trench agent for screening noisy Pump-token flow with overlap signals, strategy gates, LLM selection, and dry-run/confirm/live execution.
+**Charon2** is a heavily enhanced fork of [Charon](https://github.com/yunus-0x/charon) by [yunus-0x](https://github.com/yunus-0x), a Telegram trading agent for Pump.fun tokens on Solana.
 
-# ALERT
-This Codebase is on testing-period, developer doesn't guarantee of any result.
+This fork adds **production-grade observability, risk management, auto-tuning, and safety guards** — built for sustained live trading with real capital.
 
+---
 
-## Flow
+## ⚠️ Disclaimer
 
-1. Charon polls the Charon signal server every `SIGNAL_POLL_MS`.
-2. The active strategy gates source count, fee requirement, token age, market cap, holders, fees, trend quality, ATH distance, and position caps.
-3. Passing candidates are enriched with token info, Jupiter asset/holders/chart data, saved-wallet exposure, and fxtwitter narrative when available.
-4. The LLM screens up to `LLM_CANDIDATE_PICK_COUNT` recent candidates and may pick one `BUY`.
-5. Charon routes approved buys through `dry_run`, `confirm`, or `live`.
-6. Open positions are monitored every `POSITION_CHECK_MS` for TP, SL, trailing TP, max hold, and partial TP rules.
+> **This codebase is on testing-period. The original Charon developer doesn't guarantee any result.
+> Charon2 modifications are experimental. Use at your own risk.**
 
-## Access
+---
 
-Charon requires a signal server URL and API key. The signal server aggregates fee-claim, graduated, and trending data from Pump.fun in real time — without it Charon has nothing to screen.
+## What is Charon2?
 
-To get access, contact the maintainer. Once you have credentials, set them in `.env`:
+Charon2 is a **Solana meme-coin trading agent** that:
+1. Polls a signal server for new Pump.fun token launches
+2. Screens candidates with strategy gates + LLM decision-making
+3. Executes via Jupiter Ultra — dry-run, confirm via Telegram, or live
+4. Monitors open positions for TP/SL/trailing/max-hold rules
 
-```env
-SIGNAL_SERVER_URL=https://api.thecharon.xyz/api
-SIGNAL_SERVER_KEY=your_key_here
+**Charon2 specifically adds:** risk engine, auto-tuning, observability, blacklist management, fast-loss early exits, UTC death zone filter, safety cooldowns, and production monitoring tools.
+
+---
+
+## 📁 Project Structure
+
+```
+charon/
+├── index.js              # Entry point with safe console + graceful shutdown
+├── package.json
+├── start.sh              # PM2 startup helper
+├── dashboard2.py         # Streamlit PnL dashboard (Python)
+├── perf_chart.html       # Browser-based PnL visualizer
+├── test/                 # Unit tests (llm, risk, telegram, utils)
+├── scripts/
+│   ├── pnl_chart.py      # CLI PnL chart generator
+│   └── watchdog.sh       # Process watchdog script
+└── src/
+    ├── observability/
+    │   └── logger.js     # Structured JSON logs, rotation, secret redaction
+    ├── risk/
+    │   ├── engine.js     # Risk evaluation engine
+    │   ├── guards.js     # Trade risk guards + approval gate
+    │   ├── blacklist.js  # Token blacklist manager
+    │   └── sizing.js     # Position sizing utilities
+    ├── security/
+    │   └── telegram.js  # Telegram input validation
+    ├── learning/
+    │   ├── autoTune.js   # Auto-adjust TP/SL/size from trade outcomes
+    │   ├── commands.js
+    │   ├── lessons.js
+    │   ├── report.js
+    │   └── summary.js
+    ├── telegram/          # Bot, commands, callbacks, menus, format, send, input
+    ├── enrichment/        # gmgn, jupiter, twitter, wallets
+    ├── signals/          # axiomSource, feeClaim, graduated, priceMonitor, serverClient, trending
+    └── [core files]      # app, config, utils, liveExecutor, positions,
+                          # orchestrator, candidateBuilder, llm, connection, etc.
 ```
 
-## Install
+---
+
+## Original vs Charon2 — What Was Added/Changed
+
+### 🆕 NEW Modules (not in original)
+
+| Module | File | Description |
+|---|---|---|
+| **Observability** | `src/observability/logger.js` | JSON structured logs with log rotation, secret redaction, safe console patching, global error handlers |
+| **Risk Engine** | `src/risk/engine.js` | Configurable risk limits (daily loss, max trades, MAX_BUY_SOL), tracks today's PnL/stats, evaluates buy risk, logs risk_events |
+| **Trade Guards** | `src/risk/guards.js` | Validates trading mode, emergency stop, cooldown periods, position size, wallet reserve, token blacklist, UTC death zone |
+| **Token Blacklist** | `src/risk/blacklist.js` | Manual/auto token blocking — persisted in SQLite |
+| **Position Sizing** | `src/risk/sizing.js` | `clampBuySizeSol()` + `solToLamports()` utility |
+| **Telegram Security** | `src/security/telegram.js` | Validates `chat_id`, topic thread, and callback data format |
+| **Auto-Tune** | `src/learning/autoTune.js` | Analyzes recent trades → auto-adjusts TP target, trailing, SL, max_hold, max_mcap, position size |
+
+---
+
+### 🔄 MODIFIED Core Files (compared to original)
+
+| File | Key Changes |
+|---|---|
+| **`src/config.js`** | Added `boolEnv()`, `numEnv()` helpers, path traversal security (`safeDbPath()`), trading mode system (`dry_run/confirm/live`), risk limits (`MAX_BUY_SOL`, `DAILY_MAX_LOSS_SOL`, `MAX_TRADES_PER_DAY`), cooldowns (`TOKEN_COOLDOWN_MS`, `LOSS_COOLDOWN_MS`), safety flags (`EMERGENCY_STOP`, `REQUIRE_CONFIRMATION_FOR_LIVE`, `ALLOW_LIVE_TRADING`), Jupiter slippage clamped 1–1000, LLM timeout clamped 5–120s |
+| **`src/utils.js`** | Added `redactSecrets()`, `retryWithBackoff()`, `createCircuitBreaker()` |
+| **`src/app.js`** | Added `stopCharon()` graceful shutdown, `every()` interval helper, `startupSummary()`, initLearningTables, safe logging |
+| **`src/liveExecutor.js`** | `retryWithBackoff()` integrated into Jupiter API calls (order + execute) |
+| **`src/execution/positions.js`** | FAST_LOSS exit (-5% within 45s → immediate exit), 5-min cooling after loss, smart MAX_HOLD (profitable→breakeven+60s, loss→exit), partial TP on TP hit, position age skip (<30s), Jupiter PnL tracking, `onPositionClosed()` hook |
+| **`src/pipeline/orchestrator.js`** | Risk engine evaluation before execution, effective min confidence = max(strat, 50), default TP→30%, SL→-20%, max_open_positions→10 |
+| **`src/pipeline/candidateBuilder.js`** | UTC death zone filter (13:00–18:00 UTC blocks entries due to observed -12% avg PnL) |
+| **`src/pipeline/llm.js`** | `validateLlmDecision()` wraps result, default TP→30%, SL→-20%, `SKIP` action added, prompt emphasizes asymmetric opportunities |
+| **`src/db/connection.js`** | New tables: `decisions`, `positions`, `intents`, `risk_events`, `pending_approvals`, `blacklist`, `daily_stats`, `lessons`, `tool_errors`. New defaults: `max_open_positions: 10`, `dry_run_buy_sol: 0.01`, `default_tp_percent: 30`, `default_sl_percent: -20` |
+| **`index.js`** | `installSafeConsole()`, `unhandledRejection` + `uncaughtException` handlers, SIGINT/SIGTERM graceful shutdown, `startupSummary()` |
+
+---
+
+### 📊 Default Value Changes
+
+| Setting | Original | Charon2 |
+|---|---|---|
+| `max_open_positions` | 3 | **10** |
+| `dry_run_buy_sol` | 0.1 | **0.01** |
+| `default_tp_percent` | 50 | **30** |
+| `default_sl_percent` | -25 | **-20** |
+| `llm_timeout_ms` | 60,000 | **30,000** |
+| User-Agent | Various | `Charon/1.0` |
+
+---
+
+### 🚀 New Features
+
+1. **Observability & Structured Logging** — JSON logs split into `app.log`, `error.log`, `trades.log`. Auto-rotation at `LOG_MAX_BYTES`. Secret redaction on all writes.
+
+2. **Risk Engine** — Daily PnL tracking, loss limits, trade caps, MAX_BUY_SOL clamp. Every risk decision logged to SQLite.
+
+3. **UTC Death Zone** — UTC 13:00–18:00 blocked for new entries (observed -12% avg PnL during afternoon selling pressure).
+
+4. **FAST_LOSS Exit** — -5% loss within 45 seconds triggers immediate position exit (micro-cap dump escape).
+
+5. **Smart MAX_HOLD** — On position expiry: if profitable → SL→breakeven + 60s extension; if at loss → exit immediately.
+
+6. **Auto-Tune Learning** — After each position close: analyzes 4-hour window → adjusts TP target, trailing, SL, max_hold, max_mcap, position size.
+
+7. **Trading Modes** — `dry_run` / `confirm` / `live` with `REQUIRE_CONFIRMATION_FOR_LIVE` flag and Telegram approval gate.
+
+8. **Emergency Stop** — `EMERGENCY_STOP=1` halts all trading instantly.
+
+9. **Token Cooldowns** — After losing trade, 5-minute cooldown before same token can be re-entered.
+
+10. **Partial Take-Profit** — Strategy-based partial sells when TP% is hit.
+
+11. **Circuit Breaker + Retry** — Exponential backoff retry on Jupiter API failures.
+
+12. **Blacklist Management** — `/blacklist add <mint>`, `/blacklist remove <mint>`, `/blacklist list`
+
+---
+
+## Setup
 
 ```bash
-git clone git@github.com:yunus-0x/charon.git
+git clone git@github.com:kiozhu/charon.git
 cd charon
 npm install
 cp .env.example .env
-```
-
-Edit `.env` with your credentials, then run:
-
-```bash
+# Edit .env with your credentials
 npm start
 ```
 
 For PM2:
-
 ```bash
-pm2 start index.js --name charon
+pm2 start index.js --name charon2
 pm2 save
 ```
 
-## Required Config
-
-```env
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-```
-
-`TELEGRAM_CHAT_ID` is the chat or group ID where Charon sends alerts and accepts commands. Only messages from this chat are processed.
-
-Signal server (required — see [Access](#access) above):
-
-```env
-SIGNAL_SERVER_URL=https://api.thecharon.xyz/api
-SIGNAL_SERVER_KEY=
-SIGNAL_POLL_MS=30000
-```
-
-RPC endpoint (required for live execution):
-
-```env
-SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
-SOLANA_WS_URL=wss://mainnet.helius-rpc.com/?api-key=YOUR_KEY
-```
-
-If `SOLANA_RPC_URL`/`SOLANA_WS_URL` are not set, Charon falls back to Helius mainnet URLs and requires:
-
-```env
-HELIUS_API_KEY=
-```
-
-## GMGN Enrichment
-
-```env
-GMGN_ENABLED=true
-GMGN_API_KEY=
-```
-
-GMGN enriches candidates with holder count, liquidity, fee data, and social links. Set `GMGN_ENABLED=false` to skip it — Charon falls back to Jupiter/server data and the status line shows `off`. GMGN has aggressive rate limits; keep `GMGN_REQUEST_DELAY_MS` at 2500+ ms.
-
-## LLM Config
-
-```env
-ENABLE_LLM=true
-LLM_BASE_URL=https://api.minimax.io/v1
-LLM_API_KEY=
-LLM_MODEL=MiniMax-M2.7
-LLM_TIMEOUT_MS=60000
-LLM_CANDIDATE_PICK_COUNT=10
-LLM_CANDIDATE_MAX_AGE_MS=600000
-```
-
-`LLM_BASE_URL` accepts any OpenAI-compatible endpoint. The default is MiniMax M2.7, which is fast and cheap for this use case. OpenAI (`https://api.openai.com/v1`), Groq, and local Ollama endpoints all work — just set the matching `LLM_MODEL`.
-
-Set `ENABLE_LLM=false` to disable LLM globally. Individual strategies also have a `use_llm` flag — strategies with `use_llm: false` (e.g. `degen`) auto-approve any candidate that passes filters without calling the LLM.
-
-Each strategy has its own `llm_min_confidence` threshold. Configure it from `/menu → Strategy`, or:
-
-```bash
-/stratset sniper llm_min_confidence 70
-```
-
-## Execution Modes
-
-```env
-TRADING_MODE=dry_run
-```
-
-- `dry_run`: stores simulated buys/sells in SQLite. No wallet needed.
-- `confirm`: sends a Telegram trade intent with approve/reject buttons. Executes live only after you confirm.
-- `live`: signs and executes Jupiter Ultra swaps immediately after strategy and LLM approval.
-
-Live and confirm modes require:
-
-```env
-SOLANA_PRIVATE_KEY=
-JUPITER_API_KEY=
-JUPITER_SWAP_BASE_URL=https://api.jup.ag/swap/v2
-LIVE_MIN_SOL_RESERVE=0.02
-```
-
-`LIVE_MIN_SOL_RESERVE` is the minimum SOL kept in the wallet after any buy. Charon refuses to execute if the balance would fall below this.
-
-Swaps use Jupiter Ultra mode — slippage and routing are handled automatically by Jupiter. No manual slippage config needed.
-
-## Strategies
-
-Use `/menu → Strategy` or commands:
-
-```bash
-/strategy
-/strategy sniper
-/strategy dip_buy
-/strategy smart_money
-/strategy degen
-/stratset sniper tp_percent 75
-```
-
-Default strategies:
-
-- `sniper`: fee-claim overlap, immediate entry, LLM on.
-- `dip_buy`: waits for ATH-distance dip alerts.
-- `smart_money`: stricter holder/trending quality, partial TP support.
-- `degen`: lower source threshold, rule-based (no LLM).
-
-Strategy settings are stored in SQLite and hot-read. Menu changes apply without restart.
+---
 
 ## Telegram Commands
 
-```bash
-/menu
-/strategy
-/stratset <strategy_id> <key> <value>
-/positions
-/candidate <mint>
-/filters
-/pnl
-/learn <window>
-/lessons
+```
+/menu             # Interactive menu
+/strategy         # View/change strategy
+/stratset <s> <k> <v>  # Set strategy param
+/positions        # List open positions
+/candidate <mint> # Lookup token
+/filters          # Show current filters
+/pnl              # Show PnL summary
+/learn <window>   # Run learning analysis
+/lessons          # Show learned lessons
+/blacklist add <mint>   # Add to blacklist
+/blacklist remove <mint> # Remove from blacklist
+/blacklist list        # Show blacklisted tokens
 /walletadd <label> <address>
-/walletremove <label>
-/wallets
+/wallets          # List tracked wallets
 ```
 
-## Storage
+---
 
-Charon uses `charon.sqlite` as source of truth. It stores:
+## Differences from Original Charon by yunus-0x
 
-- candidates and filter results
-- LLM decisions and batches
-- decision logs
-- dry-run/live positions and trades
-- trade intents
-- saved wallets
-- strategy configs
-- price alerts
-- learning runs and lessons
+| Aspect | Original (yunus) | Charon2 |
+|---|---|---|
+| **Logging** | console.log | Structured JSON files, rotation, secret redaction |
+| **Risk Management** | Basic config | Full risk engine + guards + daily limits |
+| **Position Exit** | TP/SL/max_hold | FAST_LOSS + smart MAX_HOLD + partial TP |
+| **Learning** | lessons.js only | autoTune.js + lessons + report + summary |
+| **Safety** | None | Emergency stop, cooldowns, death zone filter |
+| **Blacklist** | None | SQLite-backed token blacklist |
+| **Observability** | None | Logger + error handlers + safe console |
+| **Resilience** | Basic retries | Circuit breaker + exponential backoff |
+| **Trading Modes** | dry_run/confirm/live | Same + approval gate + safety flags |
+| **LLM Timeout** | 60s default | 30s default, clamped 5–120s |
 
-Open positions resume monitoring after restart.
+---
 
-## Verification
+## Credit
 
-```bash
-npm run check
-```
+- **Original:** [yunus-0x/charon](https://github.com/yunus-0x/charon) — base trading agent
+- **Fork & Enhancements:** MUFASA — risk engine, auto-tune, observability, safety guards, smart position management
 
-## Config Reloading
+---
 
-SQLite/menu settings are hot-read by the bot. API keys, wallet key, RPC URLs, Jupiter base URL, and polling intervals are `.env` values and require restart.
+## License
 
-## API Usage Notes
-
-- **GMGN**: Rate-limited. Keep `GMGN_REQUEST_DELAY_MS=2500` or higher. Running many instances or lowering the delay will get your key banned.
-- **Jupiter**: `fetchJupiterAsset` and `fetchJupiterHolders` are called per candidate and per position refresh cycle. At high throughput, you may hit 429s — Charon backs off automatically and retries from cache.
-- **Helius RPC**: Position monitoring polls every `POSITION_CHECK_MS` (default 10s). Use a paid Helius plan for live trading; free tier will throttle under load.
-- **LLM**: One API call per batch cycle (up to `LLM_CANDIDATE_PICK_COUNT` candidates per call). MiniMax M2.7 is the most cost-efficient default for this prompt shape.
-
-## Notes
-
-- Live execution uses `@solana/web3.js` v1 (legacy SDK). It works, but a future version may migrate to `@solana/kit`.
-- The position monitor sends a Telegram alert after 3 consecutive failures on any polling loop.
+MIT — same as original Charon project.
