@@ -1,139 +1,139 @@
 # Charon2
 
-**Charon2** is a heavily enhanced fork of [Charon](https://github.com/yunus-0x/charon) by [yunus-0x](https://github.com/yunus-0x), a Telegram trading agent for Pump.fun tokens on Solana.
+**Charon2** adalah fork yang sangat ditingkatkan dari [Charon](https://github.com/yunus-0x/charon) oleh [yunus-0x](https://github.com/yunus-0x), agen trading Telegram untuk token Pump.fun di Solana.
 
-This fork adds **production-grade observability, risk management, auto-tuning, and safety guards** — built for sustained live trading with real capital.
+Fork ini menambahkan **observabilitas tingkat produksi, manajemen risiko, auto-tuning, dan pengamanan** — dibangun untuk trading live berkelanjutan dengan modal nyata.
 
 ---
 
 ## ⚠️ Disclaimer
 
-> **This codebase is on testing-period. The original Charon developer doesn't guarantee any result.
-> Charon2 modifications are experimental. Use at your own risk.**
+> **Codebase ini masih dalam masa testing. Developer Charon asli tidak menjamin hasil apa pun.
+> Modifikasi Charon2 bersifat eksperimental. Gunakan dengan risiko Anda sendiri.**
 
 ---
 
-## What is Charon2?
+## Apa itu Charon2?
 
-Charon2 is a **Solana meme-coin trading agent** that:
-1. Polls a signal server for new Pump.fun token launches
-2. Screens candidates with strategy gates + LLM decision-making
-3. Executes via Jupiter Ultra — dry-run, confirm via Telegram, or live
-4. Monitors open positions for TP/SL/trailing/max-hold rules
+Charon2 adalah **agen trading meme-coin Solana** yang:
+1. Polling server sinyal untuk peluncuran token Pump.fun baru
+2. Menyaring kandidat dengan gerbang strategi + pengambilan keputusan LLM
+3. Eksekusi via Jupiter Ultra — dry-run, konfirmasi via Telegram, atau live
+4. Memantau posisi terbuka untuk aturan TP/SL/trailing/max-hold
 
-**Charon2 specifically adds:** risk engine, auto-tuning, observability, blacklist management, fast-loss early exits, UTC death zone filter, safety cooldowns, and production monitoring tools.
+**Charon2 secara spesifik menambahkan:** mesin risiko, auto-tuning, observabilitas, manajemen blacklist, exit cepat saat rugi, filter zona kematian UTC, cooldown keamanan, dan alat monitoring produksi.
 
 ---
 
-## 📁 Project Structure
+## 📁 Struktur Proyek
 
 ```
 charon/
-├── index.js              # Entry point with safe console + graceful shutdown
+├── index.js              # Entry point dengan safe console + graceful shutdown
 ├── package.json
-├── start.sh              # PM2 startup helper
-├── dashboard2.py         # Streamlit PnL dashboard (Python)
-├── perf_chart.html       # Browser-based PnL visualizer
-├── test/                 # Unit tests (llm, risk, telegram, utils)
+├── start.sh              # Helper startup PM2
+├── dashboard2.py         # Dashboard PnL Streamlit (Python)
+├── perf_chart.html       # Visualizer PnL berbasis browser
+├── test/                 # Unit test (llm, risk, telegram, utils)
 ├── scripts/
-│   ├── pnl_chart.py      # CLI PnL chart generator
-│   └── watchdog.sh       # Process watchdog script
+│   ├── pnl_chart.py      # Generator grafik PnL CLI
+│   └── watchdog.sh       # Script watchdog proses
 └── src/
     ├── observability/
-    │   └── logger.js     # Structured JSON logs, rotation, secret redaction
+    │   └── logger.js     # Log JSON terstruktur, rotasi, redaksi rahasia
     ├── risk/
-    │   ├── engine.js     # Risk evaluation engine
-    │   ├── guards.js     # Trade risk guards + approval gate
-    │   ├── blacklist.js  # Token blacklist manager
-    │   └── sizing.js     # Position sizing utilities
+    │   ├── engine.js     # Mesin evaluasi risiko
+    │   ├── guards.js     # Pengaman trading + gerbang persetujuan
+    │   ├── blacklist.js  # Manajer blacklist token
+    │   └── sizing.js     # Utilitas sizing posisi
     ├── security/
-    │   └── telegram.js  # Telegram input validation
+    │   └── telegram.js  # Validasi input Telegram
     ├── learning/
-    │   ├── autoTune.js   # Auto-adjust TP/SL/size from trade outcomes
+    │   ├── autoTune.js   # Auto-sesuaikan TP/SL/size dari hasil trading
     │   ├── commands.js
     │   ├── lessons.js
     │   ├── report.js
     │   └── summary.js
-    ├── telegram/          # Bot, commands, callbacks, menus, format, send, input
+    ├── telegram/          # Bot, perintah, callback, menu, format, kirim, input
     ├── enrichment/        # gmgn, jupiter, twitter, wallets
     ├── signals/          # axiomSource, feeClaim, graduated, priceMonitor, serverClient, trending
-    └── [core files]      # app, config, utils, liveExecutor, positions,
-                          # orchestrator, candidateBuilder, llm, connection, etc.
+    └── [file inti]      # app, config, utils, liveExecutor, positions,
+                          # orchestrator, candidateBuilder, llm, connection, dll.
 ```
 
 ---
 
-## Original vs Charon2 — What Was Added/Changed
+## Original vs Charon2 — Apa yang Ditambah/Diubah
 
-### 🆕 NEW Modules (not in original)
+### 🆏 Modul BARU (tidak ada di original)
 
-| Module | File | Description |
+| Modul | File | Deskripsi |
 |---|---|---|
-| **Observability** | `src/observability/logger.js` | JSON structured logs with log rotation, secret redaction, safe console patching, global error handlers |
-| **Risk Engine** | `src/risk/engine.js` | Configurable risk limits (daily loss, max trades, MAX_BUY_SOL), tracks today's PnL/stats, evaluates buy risk, logs risk_events |
-| **Trade Guards** | `src/risk/guards.js` | Validates trading mode, emergency stop, cooldown periods, position size, wallet reserve, token blacklist, UTC death zone |
-| **Token Blacklist** | `src/risk/blacklist.js` | Manual/auto token blocking — persisted in SQLite |
-| **Position Sizing** | `src/risk/sizing.js` | `clampBuySizeSol()` + `solToLamports()` utility |
-| **Telegram Security** | `src/security/telegram.js` | Validates `chat_id`, topic thread, and callback data format |
-| **Auto-Tune** | `src/learning/autoTune.js` | Analyzes recent trades → auto-adjusts TP target, trailing, SL, max_hold, max_mcap, position size |
+| **Observabilitas** | `src/observability/logger.js` | Log JSON terstruktur dengan rotasi log, redaksi rahasia, patching safe console, handler error global |
+| **Mesin Risiko** | `src/risk/engine.js` | Batas risiko yang bisa dikonfigurasi (loss harian, max trade, MAX_BUY_SOL), lacak PnL/stats hari ini, evaluasi risiko beli, log risk_events |
+| **Pengaman Trading** | `src/risk/guards.js` | Validasi mode trading, emergency stop, periode cooldown, ukuran posisi, cadangan wallet, blacklist token, zona kematian UTC |
+| **Blacklist Token** | `src/risk/blacklist.js` | Pemblokiran token manual/auto — persisten di SQLite |
+| **Sizing Posisi** | `src/risk/sizing.js` | Utilitas `clampBuySizeSol()` + `solToLamports()` |
+| **Keamanan Telegram** | `src/security/telegram.js` | Validasi `chat_id`, thread topik, dan format data callback |
+| **Auto-Tune** | `src/learning/autoTune.js` | Analisis trading terakhir → auto-sesuaikan target TP, trailing, SL, max_hold, max_mcap, ukuran posisi |
 
 ---
 
-### 🔄 MODIFIED Core Files (compared to original)
+### 🔄 File Inti yang DIMODIFIKASI (dibandingkan original)
 
-| File | Key Changes |
+| File | Perubahan Utama |
 |---|---|
-| **`src/config.js`** | Added `boolEnv()`, `numEnv()` helpers, path traversal security (`safeDbPath()`), trading mode system (`dry_run/confirm/live`), risk limits (`MAX_BUY_SOL`, `DAILY_MAX_LOSS_SOL`, `MAX_TRADES_PER_DAY`), cooldowns (`TOKEN_COOLDOWN_MS`, `LOSS_COOLDOWN_MS`), safety flags (`EMERGENCY_STOP`, `REQUIRE_CONFIRMATION_FOR_LIVE`, `ALLOW_LIVE_TRADING`), Jupiter slippage clamped 1–1000, LLM timeout clamped 5–120s |
-| **`src/utils.js`** | Added `redactSecrets()`, `retryWithBackoff()`, `createCircuitBreaker()` |
-| **`src/app.js`** | Added `stopCharon()` graceful shutdown, `every()` interval helper, `startupSummary()`, initLearningTables, safe logging |
-| **`src/liveExecutor.js`** | `retryWithBackoff()` integrated into Jupiter API calls (order + execute) |
-| **`src/execution/positions.js`** | FAST_LOSS exit (-5% within 45s → immediate exit), 5-min cooling after loss, smart MAX_HOLD (profitable→breakeven+60s, loss→exit), partial TP on TP hit, position age skip (<30s), Jupiter PnL tracking, `onPositionClosed()` hook |
-| **`src/pipeline/orchestrator.js`** | Risk engine evaluation before execution, effective min confidence = max(strat, 50), default TP→30%, SL→-20%, max_open_positions→10 |
-| **`src/pipeline/candidateBuilder.js`** | UTC death zone filter (13:00–18:00 UTC blocks entries due to observed -12% avg PnL) |
-| **`src/pipeline/llm.js`** | `validateLlmDecision()` wraps result, default TP→30%, SL→-20%, `SKIP` action added, prompt emphasizes asymmetric opportunities |
-| **`src/db/connection.js`** | New tables: `decisions`, `positions`, `intents`, `risk_events`, `pending_approvals`, `blacklist`, `daily_stats`, `lessons`, `tool_errors`. New defaults: `max_open_positions: 10`, `dry_run_buy_sol: 0.01`, `default_tp_percent: 30`, `default_sl_percent: -20` |
-| **`index.js`** | `installSafeConsole()`, `unhandledRejection` + `uncaughtException` handlers, SIGINT/SIGTERM graceful shutdown, `startupSummary()` |
+| **`src/config.js`** | Ditambah helper `boolEnv()`, `numEnv()`, keamanan path traversal (`safeDbPath()`), sistem mode trading (`dry_run/confirm/live`), batas risiko (`MAX_BUY_SOL`, `DAILY_MAX_LOSS_SOL`, `MAX_TRADES_PER_DAY`), cooldown (`TOKEN_COOLDOWN_MS`, `LOSS_COOLDOWN_MS`), flag keamanan (`EMERGENCY_STOP`, `REQUIRE_CONFIRMATION_FOR_LIVE`, `ALLOW_LIVE_TRADING`), slippage Jupiter di-clamp 1–1000, timeout LLM di-clamp 5–120s |
+| **`src/utils.js`** | Ditambah `redactSecrets()`, `retryWithBackoff()`, `createCircuitBreaker()` |
+| **`src/app.js`** | Ditambah `stopCharon()` graceful shutdown, helper interval `every()`, `startupSummary()`, initLearningTables, logging aman |
+| **`src/liveExecutor.js`** | `retryWithBackoff()` terintegrasi ke panggilan API Jupiter (order + execute) |
+| **`src/execution/positions.js`** | Exit FAST_LOSS (-5% dalam 45s → exit langsung), pendingin 5 menit setelah rugi, MAX_HOLD cerdas (profit→breakeven+60s, rugi→exit langsung), TP parsial saat TP tercapai, lewati usia posisi (<30s), pelacakan PnL Jupiter, hook `onPositionClosed()` |
+| **`src/pipeline/orchestrator.js`** | Evaluasi mesin risiko sebelum eksekusi, min confidence efektif = max(strat, 50), default TP→30%, SL→-20%, max_open_positions→10 |
+| **`src/pipeline/candidateBuilder.js`** | Filter zona kematian UTC (13:00–18:00 UTC blokir entri karena rata-rata PnL -12% yang diamati) |
+| **`src/pipeline/llm.js`** | `validateLlmDecision()` membungkus hasil, default TP→30%, SL→-20%, aksi `SKIP` ditambahkan, prompt menekankan peluang asimetris |
+| **`src/db/connection.js`** | Tabel baru: `decisions`, `positions`, `intents`, `risk_events`, `pending_approvals`, `blacklist`, `daily_stats`, `lessons`, `tool_errors`. Default baru: `max_open_positions: 10`, `dry_run_buy_sol: 0.01`, `default_tp_percent: 30`, `default_sl_percent: -20` |
+| **`index.js`** | `installSafeConsole()`, handler `unhandledRejection` + `uncaughtException`, graceful shutdown SIGINT/SIGTERM, `startupSummary()` |
 
 ---
 
-### 📊 Default Value Changes
+### 📊 Perubahan Nilai Default
 
-| Setting | Original | Charon2 |
+| Pengaturan | Original | Charon2 |
 |---|---|---|
 | `max_open_positions` | 3 | **10** |
 | `dry_run_buy_sol` | 0.1 | **0.01** |
 | `default_tp_percent` | 50 | **30** |
 | `default_sl_percent` | -25 | **-20** |
 | `llm_timeout_ms` | 60,000 | **30,000** |
-| User-Agent | Various | `Charon/1.0` |
+| User-Agent | Berbagai | `Charon/1.0` |
 
 ---
 
-### 🚀 New Features
+### 🚀 Fitur Baru
 
-1. **Observability & Structured Logging** — JSON logs split into `app.log`, `error.log`, `trades.log`. Auto-rotation at `LOG_MAX_BYTES`. Secret redaction on all writes.
+1. **Observabilitas & Logging Terstruktur** — Log JSON dipisah ke `app.log`, `error.log`, `trades.log`. Rotasi otomatis di `LOG_MAX_BYTES`. Redaksi rahasia di semua tulisan.
 
-2. **Risk Engine** — Daily PnL tracking, loss limits, trade caps, MAX_BUY_SOL clamp. Every risk decision logged to SQLite.
+2. **Mesin Risiko** — Pelacakan PnL harian, batas loss, kap trading, clamp MAX_BUY_SOL. Setiap keputusan risiko di-log ke SQLite.
 
-3. **UTC Death Zone** — UTC 13:00–18:00 blocked for new entries (observed -12% avg PnL during afternoon selling pressure).
+3. **Zona Kematian UTC** — UTC 13:00–18:00 diblokir untuk entri baru (PnL rata-rata -12% yang diamati selama tekanan jual sore hari).
 
-4. **FAST_LOSS Exit** — -5% loss within 45 seconds triggers immediate position exit (micro-cap dump escape).
+4. **Exit FAST_LOSS** — Loss -5% dalam 45 detik memicu exit posisi langsung (escape dump micro-cap).
 
-5. **Smart MAX_HOLD** — On position expiry: if profitable → SL→breakeven + 60s extension; if at loss → exit immediately.
+5. **MAX_HOLD Cerdas** — Saat posisi kedaluwarsa: jika profit → SL→breakeven + perpanjangan 60s; jika rugi → exit langsung.
 
-6. **Auto-Tune Learning** — After each position close: analyzes 4-hour window → adjusts TP target, trailing, SL, max_hold, max_mcap, position size.
+6. **Pembelajaran Auto-Tune** — Setelah setiap posisi ditutup: analisis window 4 jam → sesuaikan target TP, trailing, SL, max_hold, max_mcap, ukuran posisi.
 
-7. **Trading Modes** — `dry_run` / `confirm` / `live` with `REQUIRE_CONFIRMATION_FOR_LIVE` flag and Telegram approval gate.
+7. **Mode Trading** — `dry_run` / `confirm` / `live` dengan flag `REQUIRE_CONFIRMATION_FOR_LIVE` dan gerbang persetujuan Telegram.
 
-8. **Emergency Stop** — `EMERGENCY_STOP=1` halts all trading instantly.
+8. **Emergency Stop** — `EMERGENCY_STOP=1` hentikan semua trading secara instan.
 
-9. **Token Cooldowns** — After losing trade, 5-minute cooldown before same token can be re-entered.
+9. **Cooldown Token** — Setelah trading rugi, cooldown 5 menit sebelum token yang sama bisa dimasuki lagi.
 
-10. **Partial Take-Profit** — Strategy-based partial sells when TP% is hit.
+10. **Take-Profit Parsial** — Jual parsial berbasis strategi saat TP% tercapai.
 
-11. **Circuit Breaker + Retry** — Exponential backoff retry on Jupiter API failures.
+11. **Circuit Breaker + Retry** — Retry exponential backoff saat kegagalan API Jupiter.
 
-12. **Blacklist Management** — `/blacklist add <mint>`, `/blacklist remove <mint>`, `/blacklist list`
+12. **Manajemen Blacklist** — `/blacklist add <mint>`, `/blacklist remove <mint>`, `/blacklist list`
 
 ---
 
@@ -144,11 +144,11 @@ git clone git@github.com:kiozhu/charon.git
 cd charon
 npm install
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env dengan kredensial Anda
 npm start
 ```
 
-For PM2:
+Untuk PM2:
 ```bash
 pm2 start index.js --name charon2
 pm2 save
@@ -156,51 +156,49 @@ pm2 save
 
 ---
 
-## Telegram Commands
+## Perintah Telegram
 
 ```
-/menu             # Interactive menu
-/strategy         # View/change strategy
-/stratset <s> <k> <v>  # Set strategy param
-/positions        # List open positions
-/candidate <mint> # Lookup token
-/filters          # Show current filters
-/pnl              # Show PnL summary
-/learn <window>   # Run learning analysis
-/lessons          # Show learned lessons
-/blacklist add <mint>   # Add to blacklist
-/blacklist remove <mint> # Remove from blacklist
-/blacklist list        # Show blacklisted tokens
-/walletadd <label> <address>
-/wallets          # List tracked wallets
+/menu             # Menu interaktif
+/strategy         # Lihat/ubah strategi
+/stratset <s> <k> <v>  # Atur param strategi
+/positions        # Daftar posisi terbuka
+/candidate <mint> # Cari token
+/filters          # Tampilkan filter saat ini
+/pnl              # Tampilkan ringkasan PnL
+/learn <window>   # Jalankan analisis pembelajaran
+/lessons          # Tampilkan pelajaran yang dipelajari
+/blacklist add <mint>   # Tambah ke blacklist
+/blacklist remove <mint> # Hapus dari blacklist
+/blacklist list        # Tampilkan token yang di-blacklist
+/walletadd <label> <alamat>
+/wallets          # Daftar wallet yang dilacak
 ```
 
 ---
 
-## Differences from Original Charon by yunus-0x
+## Perbedaan dari Charon Asli oleh yunus-0x
 
-| Aspect | Original (yunus) | Charon2 |
+| Aspek | Original (yunus) | Charon2 |
 |---|---|---|
-| **Logging** | console.log | Structured JSON files, rotation, secret redaction |
-| **Risk Management** | Basic config | Full risk engine + guards + daily limits |
-| **Position Exit** | TP/SL/max_hold | FAST_LOSS + smart MAX_HOLD + partial TP |
-| **Learning** | lessons.js only | autoTune.js + lessons + report + summary |
-| **Safety** | None | Emergency stop, cooldowns, death zone filter |
-| **Blacklist** | None | SQLite-backed token blacklist |
-| **Observability** | None | Logger + error handlers + safe console |
-| **Resilience** | Basic retries | Circuit breaker + exponential backoff |
-| **Trading Modes** | dry_run/confirm/live | Same + approval gate + safety flags |
-| **LLM Timeout** | 60s default | 30s default, clamped 5–120s |
+| **Logging** | console.log | File JSON terstruktur, rotasi, redaksi rahasia |
+| **Manajemen Risiko** | Config dasar | Mesin risiko lengkap + pengaman + batas harian |
+| **Exit Posisi** | TP/SL/max_hold | FAST_LOSS + MAX_HOLD cerdas + TP parsial |
+| **Pembelajaran** | lessons.js saja | autoTune.js + lessons + report + summary |
+| **Keamanan** | Tidak ada | Emergency stop, cooldown, filter zona kematian |
+| **Blacklist** | Tidak ada | Blacklist token berbasis SQLite |
+| **Observabilitas** | Tidak ada | Logger + handler error + safe console |
+| **Resiliensi** | Retry dasar | Circuit breaker + exponential backoff |
+| **Mode Trading** | dry_run/confirm/live | Sama + gerbang persetujuan + flag keamanan |
+| **Timeout LLM** | 60s default | 30s default, di-clamp 5–120s |
 
 ---
 
-## Credit
+## Kredit
 
-- **Original:** [yunus-0x/charon](https://github.com/yunus-0x/charon) — base trading agent
-- **Fork & Enhancements:** MUFASA — risk engine, auto-tune, observability, safety guards, smart position management
+- **Original:** [yunus-0x/charon](https://github.com/yunus-0x/charon) — agen trading dasar
+- **Fork & Peningkatan:** MUFASA — mesin risiko, auto-tune, observabilitas, pengamanan, manajemen posisi cerdas
 
 ---
 
-## License
-
-MIT — same as original Charon project.
+## Lisensi
